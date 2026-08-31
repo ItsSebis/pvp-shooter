@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+		/>
+		<title>PvP Shooter</title>
+		<meta name="theme-color" content="#0b0b12" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+		<!-- Provided by pwa/public — do not move these into client/src, keeps the modules decoupled -->
+		<link rel="manifest" href="/manifest.json" />
+		<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+		<link rel="stylesheet" href="/rotate-overlay.css" />
+
+		<style>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				background: #0b0b12;
+				overflow: hidden;
+				height: 100%;
+			}
+			#game {
+				width: 100%;
+				height: 100vh;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="game"></div>
+
+		<script type="module" src="/src/main.ts"></script>
+
+		<!-- Provided by pwa/public — service worker registration + orientation rotate-prompt -->
+		<script src="/register-sw.js" defer></script>
+		<script src="/rotate-overlay.js" defer></script>
+	</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "pvp-shooter-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0",
+    "phaser3-rex-plugins": "^1.80.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.2",
+    "vite": "^6.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

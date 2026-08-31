@@ -1,0 +1,34 @@
+#rotate-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 16px;
+	background: #0b0b12;
+	color: #e6e6e6;
+	font-family: system-ui, sans-serif;
+	text-align: center;
+	padding: 24px;
+}
+
+#rotate-overlay.visible {
+	display: flex;
+}
+
+#rotate-overlay .icon {
+	font-size: 48px;
+	animation: rotate-hint 1.6s ease-in-out infinite;
+}
+
+@keyframes rotate-hint {
+	0%,
+	100% {
+		transform: rotate(0deg);
+	}
+	50% {
+		transform: rotate(-90deg);
+	}
+}

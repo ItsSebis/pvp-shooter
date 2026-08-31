@@ -1,0 +1,38 @@
+/**
+ * Cloudflare Worker config for the PvP shooter.
+ * `main` is the Worker entry (server/index.ts) — it houses the fetch handler and the
+ * MatchRoom Durable Object (one instance per active match, holding authoritative state).
+ * `assets.directory` is the built client bundle (run `npm run build` in client/ first,
+ * or use the root `npm run build` which does this for you).
+ *
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pvp-shooter",
+	"main": "server/index.ts",
+	"compatibility_date": "2026-08-25",
+	"migrations": [
+		{
+			"new_sqlite_classes": ["MatchRoom"],
+			"tag": "v1"
+		}
+	],
+	"assets": {
+		"directory": "./client/dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "MatchRoom",
+				"name": "MATCH_ROOM"
+			}
+		]
+	},
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true
+}

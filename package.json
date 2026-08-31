@@ -1,0 +1,23 @@
+{
+  "name": "pvp-shooter",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npm run build --prefix client",
+    "predeploy": "npm run build",
+    "deploy": "wrangler deploy",
+    "dev:server": "wrangler dev",
+    "dev:client": "npm run dev --prefix client",
+    "cf-typegen": "wrangler types",
+    "install:all": "npm install && npm install --prefix client"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^5.5.2",
+    "wrangler": "^4.127.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260828.1": true
+  }
+}
