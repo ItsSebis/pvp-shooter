@@ -17,6 +17,7 @@ export class GameScene extends Phaser.Scene {
 	private world!: WorldRenderer;
 	private touch!: TouchControls;
 	private ui!: UIOverlay;
+	private uiCamera!: Phaser.Cameras.Scene2D.Camera;
 
 	private latestState: StateMessage | null = null;
 	private sendAccumulatorMs = 0;
@@ -28,12 +29,28 @@ export class GameScene extends Phaser.Scene {
 	create(): void {
 		this.cameras.main.setBounds(0, 0, ARENA.width, ARENA.height);
 		this.fitCameraToArena();
-		this.scale.on(Phaser.Scale.Events.RESIZE, () => this.fitCameraToArena());
+
+		// A second, unzoomed camera for touch controls. The main camera zooms out to letterbox
+		// the arena to fit the viewport (see fitCameraToArena) — `setScrollFactor(0)` alone only
+		// cancels scroll, not zoom, so screen-fixed objects on the main camera would still be
+		// scaled/shifted into the letterboxed region instead of staying pinned to the real screen
+		// corners. Each camera renders only its own layer via `ignore()` below so nothing draws
+		// twice.
+		this.uiCamera = this.cameras.add(0, 0, this.scale.gameSize.width, this.scale.gameSize.height);
+		this.uiCamera.setScroll(0, 0).setZoom(1);
 
 		this.world = new WorldRenderer(this);
 		this.touch = new TouchControls(this, () => this.triggerDash());
 		this.net = new NetworkManager();
 		this.ui = new UIOverlay(this.net);
+
+		this.uiCamera.ignore(this.world.displayObjects);
+		this.cameras.main.ignore(this.touch.displayObjects);
+
+		this.scale.on(Phaser.Scale.Events.RESIZE, (gameSize: Phaser.Structs.Size) => {
+			this.fitCameraToArena();
+			this.uiCamera.setSize(gameSize.width, gameSize.height);
+		});
 
 		this.net.on("state", (msg) => this.onState(msg));
 		this.net.on("death", (msg) => this.onDeath(msg));

@@ -21,6 +21,8 @@ const UI_DEPTH = 1000;
 export class TouchControls {
 	private readonly scene: Phaser.Scene;
 	private readonly joystick: VirtualJoyStick;
+	private readonly joystickBase: Phaser.GameObjects.Arc;
+	private readonly joystickThumb: Phaser.GameObjects.Arc;
 	private readonly dashButton: Phaser.GameObjects.Arc;
 	private readonly dashLabel: Phaser.GameObjects.Text;
 	private readonly dashCooldownRing: Phaser.GameObjects.Graphics;
@@ -34,6 +36,8 @@ export class TouchControls {
 		const thumb = scene.add.circle(0, 0, 32, 0xffffff, 0.3);
 		base.setDepth(UI_DEPTH);
 		thumb.setDepth(UI_DEPTH);
+		this.joystickBase = base;
+		this.joystickThumb = thumb;
 		this.joystick = new VirtualJoyStick(scene, {
 			x: MARGIN,
 			y: height - MARGIN,
@@ -64,6 +68,14 @@ export class TouchControls {
 		});
 
 		scene.scale.on(Phaser.Scale.Events.RESIZE, (gameSize: Phaser.Structs.Size) => this.layout(gameSize));
+	}
+
+	/** Screen-space display objects — rendered only by the unzoomed UI camera (see GameScene),
+	 * so these stay pinned to the true screen corners regardless of the main camera's zoom
+	 * (which letterboxes the arena to fit the viewport and would otherwise scale/shift these
+	 * out of their thumb-reachable positions). */
+	get displayObjects(): Phaser.GameObjects.GameObject[] {
+		return [this.joystickBase, this.joystickThumb, this.dashButton, this.dashLabel, this.dashCooldownRing];
 	}
 
 	private layout(gameSize: { width: number; height: number }): void {

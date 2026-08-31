@@ -23,15 +23,22 @@ const WEAPON_COLOR: Record<WeaponId, number> = {
 const PLAYER_PALETTE = [0x59d18a, 0xf2c14e, 0xef6f6c, 0x8aa8ff, 0xc879ff, 0x5fe0d0];
 
 export class WorldRenderer {
+	private readonly staticLayer: Phaser.GameObjects.Graphics;
 	private readonly dynamicLayer: Phaser.GameObjects.Graphics;
 	private readonly playerColors = new Map<string, number>();
 
 	constructor(scene: Phaser.Scene) {
-		this.drawStaticMap(scene);
+		this.staticLayer = this.drawStaticMap(scene);
 		this.dynamicLayer = scene.add.graphics();
 	}
 
-	private drawStaticMap(scene: Phaser.Scene): void {
+	/** World-space display objects — rendered only by the zoomed main camera, never by the
+	 * screen-fixed UI camera (see GameScene), so the arena doesn't get drawn twice. */
+	get displayObjects(): Phaser.GameObjects.GameObject[] {
+		return [this.staticLayer, this.dynamicLayer];
+	}
+
+	private drawStaticMap(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
 		const g = scene.add.graphics();
 		g.fillStyle(0x14141c, 1);
 		g.fillRect(0, 0, ARENA.width, ARENA.height);
@@ -44,6 +51,7 @@ export class WorldRenderer {
 			g.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
 			g.strokeRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
 		}
+		return g;
 	}
 
 	private colorFor(playerId: string): number {
