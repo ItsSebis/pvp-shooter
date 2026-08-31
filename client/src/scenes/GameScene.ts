@@ -1,9 +1,11 @@
 import Phaser from "phaser";
 import { ARENA } from "../../../shared/map";
-import type { ServerToClientMessage } from "../../../shared/protocol";
+import { MATCH_RULES } from "../../../shared/game-config";
+import type { ServerToClientMessage, Vector2 } from "../../../shared/protocol";
 import { NetworkManager } from "../net/NetworkManager";
 import { TouchControls } from "../input/TouchControls";
 import { WorldRenderer } from "../render/WorldRenderer";
+import { interpolateSnapshots } from "../render/interpolate";
 import { UIOverlay } from "../ui/UIOverlay";
 
 type StateMessage = Extract<ServerToClientMessage, { type: "state" }>;
@@ -11,6 +13,15 @@ type StateMessage = Extract<ServerToClientMessage, { type: "state" }>;
 /** Throttle for outgoing `input` messages — frequent enough to feel responsive, far below
  * per-frame (60/s) to keep the WebSocket light, per the task brief's 50-100ms guidance. */
 const INPUT_SEND_INTERVAL_MS = 75;
+
+/** Render slightly behind the latest snapshot so there's always a newer one to interpolate
+ * remote players/projectiles toward — one server tick is enough to smooth without feeling stale. */
+const RENDER_DELAY_MS = 100;
+/** Local-player prediction: drift beyond this snaps instantly to the server's position (a real
+ * desync — obstacle collision, respawn, a rejected dash); anything smaller eases out over a few
+ * frames via LOCAL_CORRECTION_EASE so a correction never reads as a visible snap. */
+const LOCAL_CORRECTION_SNAP_PX = 80;
+const LOCAL_CORRECTION_EASE = 0.15;
 
 export class GameScene extends Phaser.Scene {
 	private net!: NetworkManager;
@@ -21,6 +32,17 @@ export class GameScene extends Phaser.Scene {
 
 	private latestState: StateMessage | null = null;
 	private sendAccumulatorMs = 0;
+
+	/** Buffered `state` snapshots (most recent last), used to interpolate remote entities. */
+	private snapshots: StateMessage[] = [];
+	/** Client-predicted position for the local player only — advanced every frame from raw input
+	 * rather than waiting for the next server broadcast, then eased toward the server's actual
+	 * position as it arrives. Remote players/projectiles use snapshot interpolation instead (see
+	 * renderFrame); a local follow-camera-of-one doesn't need — and shouldn't have — the same
+	 * render-delay smoothing, since that would make your own movement feel laggy under your own
+	 * thumb, which is the exact complaint this exists to fix. */
+	private predictedLocalPos: Vector2 | null = null;
+	private localDashActiveUntilMs = 0;
 
 	constructor() {
 		super("GameScene");
@@ -71,6 +93,51 @@ export class GameScene extends Phaser.Scene {
 			this.sendAccumulatorMs = 0;
 			this.net.sendInput(this.touch.getMoveVector(), false);
 		}
+
+		this.advanceLocalPrediction(delta);
+		this.renderFrame();
+	}
+
+	/** Advances the local player's predicted position every rendered frame using the same
+	 * movement formula the server applies server-side (see server/match-room.ts's `resolveMovement`
+	 * call), then eases it toward the last known server-authoritative position. This is what makes
+	 * your own movement feel immediate instead of waiting up to a full tick (100ms) plus network
+	 * round-trip for the server to confirm it — the server remains authoritative, this is a visual
+	 * prediction only. Doesn't simulate obstacle collision client-side (the server does); walking
+	 * into a wall shows a brief, small correction rather than a hard stop, which is an acceptable
+	 * trade for not duplicating collision logic on both sides. */
+	private advanceLocalPrediction(deltaMs: number): void {
+		if (!this.predictedLocalPos) return;
+		const dt = deltaMs / 1000;
+		const move = this.touch.getMoveVector(); // already direction * magnitude(0..1)
+		const dashActive = Date.now() < this.localDashActiveUntilMs;
+		const speedScale = MATCH_RULES.moveSpeed * (dashActive ? MATCH_RULES.dashSpeedMultiplier : 1);
+		this.predictedLocalPos.x += move.x * speedScale * dt;
+		this.predictedLocalPos.y += move.y * speedScale * dt;
+
+		const serverLocal = this.latestState?.players.find((p) => p.id === this.net.playerId);
+		if (serverLocal) {
+			this.predictedLocalPos.x += (serverLocal.pos.x - this.predictedLocalPos.x) * LOCAL_CORRECTION_EASE;
+			this.predictedLocalPos.y += (serverLocal.pos.y - this.predictedLocalPos.y) * LOCAL_CORRECTION_EASE;
+		}
+	}
+
+	/** Renders every frame (not just on `state` receipt): interpolates remote players/projectiles
+	 * between buffered snapshots at RENDER_DELAY_MS behind the latest one, then overrides the local
+	 * player's position with the prediction from advanceLocalPrediction so it's never delayed. */
+	private renderFrame(): void {
+		const latest = this.snapshots[this.snapshots.length - 1];
+		if (!latest) return;
+
+		const renderTimeMs = latest.serverTimeMs - RENDER_DELAY_MS;
+		const { players, projectiles } = interpolateSnapshots(this.snapshots, renderTimeMs);
+
+		const localId = this.net.playerId;
+		const displayPlayers = this.predictedLocalPos
+			? players.map((p) => (p.id === localId ? { ...p, pos: this.predictedLocalPos! } : p))
+			: players;
+
+		this.world.render(displayPlayers, projectiles, latest.pickups, latest.shopZones, localId);
 	}
 
 	/**
@@ -91,13 +158,32 @@ export class GameScene extends Phaser.Scene {
 	private triggerDash(): void {
 		this.net.sendInput(this.touch.getMoveVector(), true);
 		this.sendAccumulatorMs = 0;
+		// Predict the dash burst locally too (TouchControls already blocks pressing while on
+		// cooldown, so a server-side rejection here is rare — and self-corrects within a few
+		// frames via the continuous easing in advanceLocalPrediction if it does happen).
+		this.localDashActiveUntilMs = Date.now() + MATCH_RULES.dashDurationMs;
 	}
 
 	private onState(msg: StateMessage): void {
 		this.latestState = msg;
-		const localPlayer = msg.players.find((p) => p.id === this.net.playerId) ?? null;
+		this.snapshots.push(msg);
+		if (this.snapshots.length > 5) this.snapshots.shift();
 
-		this.world.render(msg.players, msg.projectiles, msg.pickups, msg.shopZones, this.net.playerId);
+		const localPlayer = msg.players.find((p) => p.id === this.net.playerId) ?? null;
+		if (localPlayer) {
+			if (!this.predictedLocalPos) {
+				this.predictedLocalPos = { ...localPlayer.pos };
+			} else {
+				const dx = localPlayer.pos.x - this.predictedLocalPos.x;
+				const dy = localPlayer.pos.y - this.predictedLocalPos.y;
+				if (Math.hypot(dx, dy) > LOCAL_CORRECTION_SNAP_PX) {
+					// A real desync (respawn, a rejected dash, etc.) rather than the small, expected
+					// drift from not simulating obstacle collision client-side — snap instantly.
+					this.predictedLocalPos = { ...localPlayer.pos };
+				}
+			}
+		}
+
 		this.ui.updateHud(localPlayer);
 		this.ui.updateShopPrompt(localPlayer, msg.shopZones);
 		this.ui.updateClassSelect(localPlayer);

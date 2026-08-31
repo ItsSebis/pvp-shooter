@@ -20,5 +20,11 @@ new Phaser.Game({
 		width: window.innerWidth,
 		height: window.innerHeight,
 	},
+	// Phaser defaults to a single active pointer, which silently drops one of two simultaneous
+	// touches — e.g. holding the joystick with the left thumb while tapping dash with the right.
+	// Two is the real requirement; a couple of spares cost nothing.
+	input: {
+		activePointers: 3,
+	},
 	scene: [GameScene],
 });

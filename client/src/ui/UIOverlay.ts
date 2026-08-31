@@ -45,6 +45,14 @@ const STYLE = `
 	padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
 .class-select button:hover { background: #33334a; }
 
+.invite-panel { position: absolute; top: 10px; right: 10px; max-width: min(46vw, 220px);
+	display: flex; align-items: center; gap: 6px;
+	background: rgba(10,10,16,0.55); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+	padding: 6px 8px; font-size: 12px; }
+.invite-panel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invite-panel button { flex-shrink: 0; background: #59d18a; border: none; color: #0b0b12; font-weight: 700;
+	padding: 5px 8px; border-radius: 6px; font-size: 12px; }
+
 /* The base rules above set display:flex unconditionally, which (being an author rule) beats
  * the user-agent's default [hidden]{display:none} at equal specificity — so the .hidden DOM
  * property alone would NOT actually hide these two panels. Force it explicitly here. */
@@ -134,6 +142,16 @@ export class UIOverlay {
 
 		hud.append(healthRow, moneyRow, weaponRow, dashRow);
 
+		// Invite panel — the actual fix for "players keep spawning alone in the top-left corner":
+		// without a visible, shareable link, a second device has no way to actually join the same
+		// match code (and no way to even see it — an installed/standalone PWA has no address bar),
+		// so each device silently starts its own separate solo match and always lands at spawn 0.
+		const invite = el("div", "invite-panel");
+		invite.append(el("span", "", `Match: ${this.net.matchCode}`));
+		const shareButton = el("button", "", "Share Link");
+		shareButton.addEventListener("click", () => this.shareInviteLink());
+		invite.append(shareButton);
+
 		// Shop prompt
 		this.shopPanel = el("div", "panel-center");
 		this.shopPanel.hidden = true;
@@ -169,10 +187,45 @@ export class UIOverlay {
 		reloadButton.addEventListener("click", () => window.location.reload());
 		this.matchEndOverlay.append(this.matchEndText, reloadButton);
 
-		this.root.append(hud, this.shopPanel, this.classPanel, this.toast, this.deathOverlay, this.matchEndOverlay);
+		this.root.append(
+			hud,
+			invite,
+			this.shopPanel,
+			this.classPanel,
+			this.toast,
+			this.deathOverlay,
+			this.matchEndOverlay,
+		);
 
 		const mount = document.getElementById("game") ?? document.body;
 		mount.appendChild(this.root);
+	}
+
+	/** `resolveMatchCode()` (client/src/net/socket.ts) already writes `?match=<code>` into the
+	 * current URL via `history.replaceState` on load, so `location.href` IS the correct invite
+	 * link already — no need to rebuild it. Prefers the native share sheet on mobile (the actual
+	 * way someone sends a link to a friend); falls back to clipboard on desktop. */
+	private shareInviteLink(): void {
+		const link = window.location.href;
+		if (navigator.share) {
+			navigator.share({ title: "Join my PvP Shooter match", url: link }).catch(() => {});
+			return;
+		}
+		if (navigator.clipboard?.writeText) {
+			navigator.clipboard.writeText(link).then(
+				() => this.flashToast("Link copied!", true),
+				() => this.flashToast("Couldn't copy — copy the URL bar instead", false),
+			);
+			return;
+		}
+		this.flashToast("Copy the URL bar to invite a friend", false);
+	}
+
+	private flashToast(text: string, ok: boolean): void {
+		window.clearTimeout(this.toastTimer);
+		this.toast.className = `toast show ${ok ? "ok" : "bad"}`;
+		this.toast.textContent = text;
+		this.toastTimer = window.setTimeout(() => this.toast.classList.remove("show"), 1800);
 	}
 
 	/** Drive the HUD from the local player's state; falls back to sensible defaults before `state` arrives. */
