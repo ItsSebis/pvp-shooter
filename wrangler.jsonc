@@ -31,6 +31,8 @@
 			}
 		]
 	},
+	"routes": [{ "pattern": "pvp.sebis.net", "custom_domain": true }],
+	"workers_dev": true,
 	"observability": {
 		"enabled": true
 	},
