@@ -6,6 +6,7 @@ import {
 	ECONOMY,
 	MATCH_RULES,
 	MAX_WEAPON_LEVEL,
+	weaponLevelCost,
 	WEAPONS,
 	type WeaponId,
 	type WeaponStats,
@@ -201,11 +202,12 @@ export class MatchRoom extends DurableObject<Env> {
 		}
 		const inShop = SHOP_ZONES.some((zone) => distance(player.pos, zone) <= zone.radius);
 		if (!inShop) return this.send(ws, this.purchaseResult(false, "not in a shop zone"));
-		if (player.money < ECONOMY.weaponLevelCost) {
+		const cost = weaponLevelCost(player.weaponLevel);
+		if (player.money < cost) {
 			return this.send(ws, this.purchaseResult(false, "insufficient funds"));
 		}
 
-		player.money -= ECONOMY.weaponLevelCost;
+		player.money -= cost;
 		player.weaponLevel += 1;
 		this.send(ws, this.purchaseResult(true));
 	}
@@ -281,7 +283,6 @@ export class MatchRoom extends DurableObject<Env> {
 			const internal = this.playerInternal.get(id);
 			if (!internal) continue;
 			this.updateTargetingAndFiring(id, player, internal, now, dt);
-			player.money += ECONOMY.surviveTickReward; // literal per-tick reward, per shared config's own doc comment
 			this.checkPickupCollection(player, now);
 		}
 

@@ -1,5 +1,12 @@
 import type { PlayerState, ServerToClientMessage, ShopZoneState } from "../../../shared/protocol";
-import { CLASS_UNLOCK_LEVEL, ECONOMY, MATCH_RULES, WEAPONS, type WeaponId } from "../../../shared/game-config";
+import {
+	CLASS_UNLOCK_LEVEL,
+	MATCH_RULES,
+	MAX_WEAPON_LEVEL,
+	weaponLevelCost,
+	WEAPONS,
+	type WeaponId,
+} from "../../../shared/game-config";
 import { isWithinShopZone } from "../render/WorldRenderer";
 import type { NetworkManager } from "../net/NetworkManager";
 
@@ -91,6 +98,7 @@ export class UIOverlay {
 	private readonly dashText: HTMLSpanElement;
 
 	private readonly shopPanel: HTMLDivElement;
+	private readonly shopCostText: HTMLParagraphElement;
 	private readonly shopButton: HTMLButtonElement;
 	private readonly classPanel: HTMLDivElement;
 
@@ -155,7 +163,8 @@ export class UIOverlay {
 		// Shop prompt
 		this.shopPanel = el("div", "panel-center");
 		this.shopPanel.hidden = true;
-		this.shopPanel.append(el("p", "", `Shop: buy weapon level (cost ${ECONOMY.weaponLevelCost})`));
+		this.shopCostText = el("p", "", "");
+		this.shopPanel.append(this.shopCostText);
 		this.shopButton = el("button", "", "Buy");
 		this.shopButton.addEventListener("click", () => this.net.buyWeaponLevel());
 		this.shopPanel.append(this.shopButton);
@@ -258,7 +267,14 @@ export class UIOverlay {
 		const inZone = shopZones.some((zone) => isWithinShopZone(localPlayer ?? undefined, zone));
 		this.shopPanel.hidden = !inZone;
 		if (inZone && localPlayer) {
-			this.shopButton.disabled = localPlayer.money < ECONOMY.weaponLevelCost;
+			if (localPlayer.weaponLevel >= MAX_WEAPON_LEVEL) {
+				this.shopCostText.textContent = "Weapon already at max level";
+				this.shopButton.disabled = true;
+			} else {
+				const cost = weaponLevelCost(localPlayer.weaponLevel);
+				this.shopCostText.textContent = `Shop: buy weapon level ${localPlayer.weaponLevel + 1} (cost ${cost})`;
+				this.shopButton.disabled = localPlayer.money < cost;
+			}
 		}
 	}
 

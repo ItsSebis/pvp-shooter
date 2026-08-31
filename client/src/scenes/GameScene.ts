@@ -10,13 +10,14 @@ import { UIOverlay } from "../ui/UIOverlay";
 
 type StateMessage = Extract<ServerToClientMessage, { type: "state" }>;
 
-/** Throttle for outgoing `input` messages — frequent enough to feel responsive, far below
- * per-frame (60/s) to keep the WebSocket light, per the task brief's 50-100ms guidance. */
-const INPUT_SEND_INTERVAL_MS = 75;
+/** Throttle for outgoing `input` messages — matched to the server's tick rate
+ * (MATCH_RULES.matchTickMs) so input isn't sitting around waiting for the next send window
+ * longer than the server would take to process it anyway. */
+const INPUT_SEND_INTERVAL_MS = MATCH_RULES.matchTickMs;
 
 /** Render slightly behind the latest snapshot so there's always a newer one to interpolate
  * remote players/projectiles toward — one server tick is enough to smooth without feeling stale. */
-const RENDER_DELAY_MS = 100;
+const RENDER_DELAY_MS = MATCH_RULES.matchTickMs;
 /** Local-player prediction: drift beyond this snaps instantly to the server's position (a real
  * desync — obstacle collision, respawn, a rejected dash); anything smaller eases out over a few
  * frames via LOCAL_CORRECTION_EASE so a correction never reads as a visible snap. */

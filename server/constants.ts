@@ -19,16 +19,17 @@ export const PICKUP_COLLECT_RADIUS = 24;
 /** How long a dead player waits before respawning, in ms. */
 export const RESPAWN_DELAY_MS = 2000;
 
-/** How long a collected money pickup takes to respawn, in ms. */
-export const PICKUP_RESPAWN_MS = 10_000;
+/** How long a collected money pickup takes to respawn, in ms. Deliberately slow — pickups are a
+ * small supplement to a match's economy, not a primary income source (see ECONOMY in
+ * shared/game-config.ts: kills are the intended way to afford weapon levels). */
+export const PICKUP_RESPAWN_MS = 20_000;
 
 /**
- * Fixed pickup spawn locations. Chosen clear of every OBSTACLES rect and away from
- * SPAWN_POINTS/SHOP_ZONES in shared/map.ts so pickups are always reachable and visible.
+ * Fixed pickup spawn locations — deliberately just a few, not scattered generously across the
+ * map. Chosen clear of every OBSTACLES rect and away from SPAWN_POINTS/SHOP_ZONES in
+ * shared/map.ts so pickups are always reachable and visible.
  */
 export const PICKUP_SPAWN_POINTS: Vector2[] = [
-	{ x: 400, y: 450 },
-	{ x: 1200, y: 450 },
 	{ x: 800, y: 300 },
 	{ x: 800, y: 650 },
 ];

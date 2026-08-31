@@ -120,19 +120,33 @@ export function decayLevelOnDeath(currentLevel: number): number {
 }
 
 export const ECONOMY = {
-  /** Money awarded to the killer on a kill. */
+  /** Money awarded to the killer on a kill — the primary, intended income source. Deliberately
+   * the only large, reliable source of money: leveling up should require actually fighting and
+   * winning, not standing around. */
   killReward: 50,
-  /** Money awarded per pickup collected on the map. */
-  pickupValue: 10,
-  /** Passive money awarded per tick survived (see `matchTickMs`). */
-  surviveTickReward: 1,
-  /** Cost in money to buy one weapon level via a shop zone. */
-  weaponLevelCost: 40,
+  /** Money awarded per pickup collected on the map — a small supplement, not a primary income
+   * source (see `PICKUP_SPAWN_POINTS` / `PICKUP_RESPAWN_MS` in server/constants.ts, which keep
+   * the map's pickups few and slow to respawn on purpose). */
+  pickupValue: 5,
+  /** Cost to buy one weapon level, indexed by (currentLevel - 1) — e.g. index 0 is the cost to
+   * go from level 1 to 2. Deliberately increasing per level (not flat) so reaching max level
+   * takes real, escalating effort rather than a couple of quick purchases. There is intentionally
+   * NO passive/per-tick income (see MATCH_RULES.matchTickMs) — money only comes from kills and
+   * map pickups. */
+  weaponLevelCosts: [50, 80, 120],
 };
 
+/** Cost to buy the next weapon level from `currentLevel`; `Infinity` once already at/above
+ * MAX_WEAPON_LEVEL (nothing left to buy). */
+export function weaponLevelCost(currentLevel: number): number {
+  return ECONOMY.weaponLevelCosts[currentLevel - 1] ?? Infinity;
+}
+
 export const MATCH_RULES = {
-  /** Server authoritative simulation tick rate, in ms. */
-  matchTickMs: 100,
+  /** Server authoritative simulation tick rate, in ms. Lower = less time between a player's
+   * input and it taking visible effect (server processes/broadcasts once per tick), at the cost
+   * of more frequent WebSocket traffic — trivial at this player count (2-5 per match). */
+  matchTickMs: 50,
   /** First-to-N-kills condition. */
   killsToWin: 5,
   /** Or a hard timer, in ms, whichever comes first (see start-here.md default). */
