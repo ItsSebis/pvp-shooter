@@ -4,12 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This repository contains **only design/architecture docs, no code yet**. Before writing
-any code, read `docs/start-here.md` — it is a Claude Code-specific execution plan
-(scaffold order, worktree layout, subagent delegation, integration order) and is the
-actual entry point for building this project. Read `docs/GAME_DESIGN.md` and
-`docs/ARCHITECTURE.md` in full alongside it; the plan assumes both have been read
-completely, not skimmed.
+Built and deployed. Live at https://pvp-shooter.sebi-50f.workers.dev (Cloudflare Workers,
+account "Sebi"). Core loop works end to end: join a match, move via joystick, auto-fire
+kills/deaths with level decay, shop purchases, PWA install. `docs/start-here.md`,
+`docs/GAME_DESIGN.md`, and `docs/ARCHITECTURE.md` are the original design/build spec —
+still accurate for game rules and intent, but written pre-implementation, so treat this
+file as the source of truth for what actually exists and how to run it.
+
+## Commands
+
+```
+npm run install:all        # installs both root and client/ deps
+npm run build               # builds client/ into client/dist (tsc --noEmit + vite build)
+npm run deploy               # builds client, then `wrangler deploy`
+npm run dev:server            # wrangler dev (serves client/dist + the MatchRoom DO locally)
+npm run dev:client             # vite dev server, client/ only (no live server backing it)
+npx tsc --noEmit -p tsconfig.json      # type-check server/ + shared/
+npx tsc --noEmit -p test/tsconfig.json # type-check test/
+npx vitest run                          # server/ unit + integration tests
+npx wrangler types                       # regenerate worker-configuration.d.ts after
+                                           # changing wrangler.jsonc bindings
+```
+
+For local end-to-end testing, run `npm run dev:server` (this serves the already-built
+`client/dist`, so run `npm run build` first after client changes) and connect via
+`ws://localhost:8787/ws?match=<code>`, or open `http://localhost:8787/?match=<code>` in
+a browser — the client resolves/generates the match code from the URL itself.
 
 ## What this is
 
@@ -19,38 +39,61 @@ target in range + line-of-sight — there is no manual aim. Skill instead comes 
 dodging (projectiles have travel time/spread), breaking line-of-sight to drop enemy
 target lock, reading weapon tells (windups/spin-ups), and dash timing.
 
-## Architecture (once built)
+## Architecture
 
-- **Rendering**: Phaser 3, using `rexvirtualjoystickplugin` for the movement joystick.
-- **App shell**: Next.js on Cloudflare Workers.
-- **Multiplayer**: one Cloudflare Durable Object per active match holds authoritative
-  state and relays it to both clients over WebSocket. Clients send only input (joystick
-  vector, dash press); the Durable Object runs the authoritative tick — movement,
-  target acquisition/LOS, projectile/damage resolution, money, leveling, level decay.
-  This is intentional even for a friend-group game, to prevent a modified client from
-  claiming extra damage.
-- **PWA**: `manifest.json` (`orientation: landscape`) + a service worker caching the
-  Phaser bundle/sprites/static assets only — multiplayer traffic is never cached.
-  iOS PWAs can't force orientation, so portrait is detected via
-  `matchMedia('(orientation: portrait)')` and handled with a rotate-prompt overlay,
-  not a forced rotation.
+- **Rendering**: Phaser 3 (`client/`), `phaser3-rex-plugins`' `VirtualJoyStick` for
+  movement (imported directly, not through Phaser's plugin manager — see
+  `client/src/input/TouchControls.ts`).
+- **App shell**: a single Cloudflare Worker serving static assets (the built client
+  bundle) plus the Durable Object — **not** Next.js, despite `docs/ARCHITECTURE.md`'s
+  suggestion. There's no server-rendered content here (one canvas app + a realtime
+  socket), so plain Vite + Workers Static Assets avoids the OpenNext/Next.js build
+  pipeline for no benefit. See `wrangler.jsonc`.
+- **Multiplayer**: one `MatchRoom` Durable Object per match code (`server/match-room.ts`,
+  routed via `env.MATCH_ROOM.getByName(matchCode)` in `server/index.ts`), holding
+  authoritative state and relaying it to both clients over WebSocket at
+  `MATCH_RULES.matchTickMs` via a `setInterval` tick loop (not the Alarms API — too
+  coarse at 100ms). Clients send only `input` (joystick vector, dash press); the DO
+  resolves movement, LOS-gated auto-targeting, projectile/damage, money, leveling, and
+  level decay. Match code is captured from the `?match=` query param on the DO's first
+  `fetch()` and cached on the instance for the match's lifetime — never persisted, since
+  the DO's lifetime *is* the match's.
+- **PWA**: `pwa/public/manifest.json` (`orientation: landscape`), a precaching service
+  worker (`pwa/public/sw.js` — network-first for navigation so a stale cached
+  `index.html` never points at a previous deploy's now-deleted content-hashed JS/CSS;
+  cache-first for everything else same-origin), and a rotate-prompt overlay driven by
+  `matchMedia('(orientation: portrait)')` (iOS can't force orientation). These live
+  under `pwa/public/` and land at the built bundle's root via `client/vite.config.ts`'s
+  `publicDir` — `client/index.html` references them by absolute path
+  (`/manifest.json`, `/sw.js`, etc.) with zero build-time coordination needed.
 
-## The shared config contract
+## The shared contracts
 
-Weapon stats, leveling tiers, and the level-decay formula must live in exactly one
-module, `shared/game-config.ts`, imported by **both** the client (for
-prediction/UI) and the Durable Object (for authoritative resolution). Never duplicate
-these numbers across client and server — tuning must mean editing one file. This file
-is meant to be built first, before any other module, since everything else imports it.
+Three files under `shared/` are the frozen contracts every other module imports —
+`client/`, `server/` never duplicate these numbers or shapes:
+- `shared/game-config.ts` — weapon stats, leveling tiers, level-decay formula
+  (`decayLevelOnDeath`: halves and **rounds down** on odd levels — picked as the
+  friendlier option, an explicitly open decision in the original design doc), economy,
+  match rules (default: first to 5 kills or a 5-minute timer).
+- `shared/protocol.ts` — the full WebSocket message contract (`ClientToServerMessage` /
+  `ServerToClientMessage`), including `PlayerState`/`ProjectileState`/etc.
+- `shared/map.ts` — the single arena/obstacle/spawn/shop layout, used both for client
+  rendering and server line-of-sight raycasting — they must render/raycast against
+  identical obstacles for LOS-breaking to work correctly on both sides.
 
-Level decay on death: `new_level = max(1, round(current_level / 2))`.
+## Module layout
 
-## Module boundaries
-
-Per `docs/ARCHITECTURE.md`, the codebase is meant to split into `shared/`, `client/`,
-`server/`, `pwa/` — in that build order, since each later module depends on the shared
-config and (for client) on the server's WebSocket contract. `docs/start-here.md` maps
-these onto git worktrees for parallel subagent work.
+`client/` (Phaser game + touch UI + DOM HUD/shop/class overlays), `server/` (the
+`MatchRoom` Durable Object + combat/geometry/rng helpers + Worker entry), `pwa/` (PWA
+static assets, built into the client bundle's root). Built in parallel via git
+worktrees per `docs/start-here.md`'s plan, then merged server → client → pwa. A known
+gap this surfaced and required fixing post-merge: `GameScene` zooms its main camera out
+to letterbox-fit the whole arena (no manual aim, so full-map visibility matters more
+than a follow camera) — screen-fixed UI (joystick, dash button) needs its own separate,
+unzoomed camera (`GameScene.uiCamera`), or `setScrollFactor(0)` alone still lets zoom
+scale/shift it off the true screen corners. If you add more screen-fixed UI as Phaser
+game objects (not DOM), route it through `uiCamera` the same way, ignoring it on
+`cameras.main`.
 
 ## Weapon design (rock-paper-scissors, not a stat ladder)
 
@@ -64,15 +107,26 @@ core to the game, not incidental:
 | Shotgun | Big burst damage at close range | Falls off a cliff past close range — kite it |
 | Minigun | Sustained DPS, low execution skill | Slow tracking, spread widens while firing, movement penalty; visible spin-up — juke during spin-up or dodge diagonally |
 
-Exact numbers (damage, cooldowns, spread, spin-up duration) are explicitly *not*
-finalized in the design doc — they're tuning parameters to be set once during
-implementation and adjusted after playtesting, documented as code comments in
-`shared/game-config.ts`, not treated as a spec to satisfy exactly.
+All exact numbers live in `shared/game-config.ts` as tuning values (with comments
+noting the reasoning where non-obvious) — expect to adjust them after playtesting with
+the actual friend group, not treat them as final.
 
-## Definition of done
+## Known gaps / not yet built
 
-A build is only complete when it matches the Definition of "ready to play" checklist
-at the bottom of `docs/ARCHITECTURE.md` against a real deployed build — two phones
-joining the same match, playing a full round including a death and a shop purchase,
-and installing via "Add to Home Screen" on iOS Safari. Passing compilation/tests is
-not sufficient to call this done.
+- **Friendly mode toggle** (mentioned in `docs/GAME_DESIGN.md`, normalizes everyone to
+  level 1) has no wire message in `shared/protocol.ts` and isn't implemented — it's not
+  in `docs/ARCHITECTURE.md`'s Definition of Done checklist, so it didn't block the v1
+  build, but is a natural next feature.
+- Client-side prediction/interpolation between `state` broadcasts isn't implemented —
+  positions snap on each update rather than smoothly interpolating. Playable, not
+  buttery.
+- Full multiplayer tick-loop integration testing is light — `test/` covers LOS raycast
+  correctness, damage/cooldown/falloff math, and the decay formula in isolation, plus
+  one join→joined→state integration test. The rest was verified via manual two-client
+  WebSocket smoke tests against both local `wrangler dev` and the live deployment
+  (movement, LOS-gated combat, death/decay/respawn, shop purchases all confirmed
+  working), not automated.
+- `client/`'s `phaser3-rex-plugins` dependency pulls in a moderate-severity transitive
+  advisory (`i18next-http-backend`, a path-traversal issue in an i18n HTTP loader we
+  never use — only the virtual-joystick submodule is imported). Not exploitable in how
+  it's used here; left as-is rather than forcing a breaking-change upgrade.
