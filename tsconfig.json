@@ -15,5 +15,5 @@
 		"skipLibCheck": true,
 		"types": ["./worker-configuration.d.ts", "node"]
 	},
-	"exclude": ["client", "node_modules"]
+	"exclude": ["client", "node_modules", "test"]
 }
